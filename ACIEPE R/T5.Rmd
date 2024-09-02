@@ -1,0 +1,171 @@
+---
+title: "T5"
+author: "Ana Ellen"
+date: "2024-08-26"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# T5 - Modelagem das ações da VALE
+
+```{r config}
+library(BatchGetSymbols) 
+library(rugarch)
+library(tidyverse)
+library(ggthemes) 
+library(FinTS)
+library(xtable)
+library(tbl2xts)
+tickers <- c("VALE3.SA")
+
+vale_data <- BatchGetSymbols(tickers,
+                             first.date = '2019-03-21',
+                             last.date = Sys.time(),
+                             type.return = "log",
+                             freq.data = "daily")
+
+vale <- vale_data[[2]]
+
+# Selecionar os retornos diários
+daily_returns <- vale %>% 
+  select(ref.date, ret.closing.prices)
+
+date <- daily_returns %>%
+  select(ref.date) %>% 
+  rename(date = ref.date) %>% 
+  slice(-1)
+
+daily_returns <- daily_returns %>%
+  select(ret.closing.prices) %>% 
+  slice(-1)
+```
+
+## Teste LM
+
+```{r Teste LM}
+daily_returns <- as.numeric(daily_returns[ , 1])
+
+ArchTest(daily_returns, lags = 1, demean = TRUE)
+ArchTest(daily_returns, lags = 2, demean = TRUE)
+ArchTest(daily_returns, lags = 10, demean = TRUE)
+
+returns <- daily_returns
+```
+Os p-values são muito baixos, então existe evidências de heterocedasticidade condicional.
+
+## Modelo GARCH(1,1)
+
+```{r Garch}
+# Normal
+spec_garch_norm <- ugarchspec(variance.model = list(model = "sGARCH", garchOrder = c(1, 1)),
+                              mean.model = list(armaOrder = c(0, 0), include.mean = TRUE),
+                              distribution.model = "norm")
+fit_garch_norm <- ugarchfit(spec = spec_garch_norm, data = returns)
+
+# t Student
+spec_garch_t <- ugarchspec(variance.model = list(model = "sGARCH", garchOrder = c(1, 1)),
+                           mean.model = list(armaOrder = c(0, 0), include.mean = TRUE),
+                           distribution.model = "std")
+fit_garch_t <- ugarchfit(spec = spec_garch_t, data = returns)
+
+```
+
+## Modelo EGARCH(1,1)
+
+```{r Egarch}
+# Normal
+spec_egarch_norm <- ugarchspec(variance.model = list(model = "eGARCH", garchOrder = c(1, 1)),
+                               mean.model = list(armaOrder = c(0, 0), include.mean = TRUE),
+                               distribution.model = "norm")
+fit_egarch_norm <- ugarchfit(spec = spec_egarch_norm, data = returns)
+
+# t Student
+spec_egarch_t <- ugarchspec(variance.model = list(model = "eGARCH", garchOrder = c(1, 1)),
+                            mean.model = list(armaOrder = c(0, 0), include.mean = TRUE),
+                            distribution.model = "std")
+fit_egarch_t <- ugarchfit(spec = spec_egarch_t, data = returns)
+
+```
+
+
+## Modelo GJR-GARCH(1,1)
+
+```{r Gjr}
+# Normal
+spec_gjr_norm <- ugarchspec(variance.model = list(model = "gjrGARCH", garchOrder = c(1, 1)),
+                            mean.model = list(armaOrder = c(0, 0), include.mean = TRUE),
+                            distribution.model = "norm")
+fit_gjr_norm <- ugarchfit(spec = spec_gjr_norm, data = returns)
+
+# t Student
+spec_gjr_t <- ugarchspec(variance.model = list(model = "gjrGARCH", garchOrder = c(1, 1)),
+                         mean.model = list(armaOrder = c(0, 0), include.mean = TRUE),
+                         distribution.model = "std")
+fit_gjr_t <- ugarchfit(spec = spec_gjr_t, data = returns)
+```
+
+```{r}
+print(fit_garch_norm)
+print(fit_garch_t)
+print(fit_egarch_norm)
+print(fit_egarch_t)
+print(fit_gjr_norm)
+print(fit_gjr_t)
+```
+
+```{r comparacao}
+# Instale e carregue o pacote rugarch, se ainda não o fez
+# install.packages("rugarch")
+library(rugarch)
+
+# Obtenha os critérios de informação para cada modelo
+aic_bic_garch_norm <- infocriteria(fit_garch_norm)
+aic_bic_egarch_norm <- infocriteria(fit_egarch_norm)
+aic_bic_gjr_norm <- infocriteria(fit_gjr_norm)
+aic_bic_garch_t <- infocriteria(fit_garch_t)
+aic_bic_egarch_t <- infocriteria(fit_egarch_t)
+aic_bic_gjr_t <- infocriteria(fit_gjr_t)
+
+print(aic_bic_garch_norm)
+print(aic_bic_egarch_norm)
+print(aic_bic_gjr_norm)
+print(aic_bic_garch_t)
+print(aic_bic_egarch_t)
+print(aic_bic_gjr_t)
+```
+
+* Para AIC, o melhor modelo é EGARCH(1,1) t-Student com AIC de -4.960126.
+
+* Para BIC, o melhor modelo é EGARCH(1,1) t-Student com BIC de -4.936994.
+
+```{r previsoes volatilidade}
+library(rugarch)
+library(xts)
+library(ggplot2)
+
+# Obtenha as previsões da volatilidade condicional
+forecast <- ugarchforecast(fit_egarch_t, n.ahead = 20)
+forecast_values <- as.numeric(forecast@forecast$seriesFor)
+forecast_dates <- seq(from = Sys.Date(), by = "day", length.out = length(forecast_values))
+
+# Plotar as previsões
+plot(forecast_dates, forecast_values, type = "l", col = "purple", 
+     xlab = "Data", ylab = "Volatilidade Condicional",
+     main = "Previsões da Volatilidade Condicional")
+
+```
+
+
+## Análise de Resíduos
+```{r residuos}
+# Obtenha os resíduos do modelo
+residuals_analysis <- residuals(fit_egarch_t)
+
+# Plotar a função de autocorrelação dos resíduos
+acf(residuals_analysis, main = "Função de Autocorrelação dos Resíduos")
+```
+
+* Resíduos sem autocorrelação significativa - bom ajuste de modelo

@@ -1,0 +1,354 @@
+---
+title: "T3"
+author: "Ana Ellen"
+date: "2024-08-25"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r config, message=FALSE, warning=FALSE}
+library(BatchGetSymbols)
+library(dplyr)
+library(ggplot2)
+library(cowplot)
+library(zoo)
+
+# Definir ticker do Ibovespa
+ticker_ibovespa <- "^BVSP"
+
+# Coletar dados históricos
+ibovespa_data <- BatchGetSymbols(
+  tickers = ticker_ibovespa,
+  first.date = '2021-01-01',
+  last.date = Sys.Date(),
+  type.return = "log",
+  freq.data = "daily"
+)
+
+# Extrair o dataframe do Ibovespa
+ibovespa_df <- ibovespa_data$df.tickers %>%
+  filter(ticker == ticker_ibovespa)
+
+```
+
+# T3 - Modelo ARMA na prática
+
+## 1- a) Fatos estilizados
+
+```{r 1 - Fatos Estilizados, fig.width=14, fig.height=8, message=FALSE, warning=FALSE}
+library(ggplot2)
+library(cowplot)
+library(zoo)
+library(dplyr)
+library(ggthemes)  # Para o tema economist
+
+# Função para criar gráficos
+make_plots <- function(data, ticker) {
+  # Filtrar por ticker
+  asset_data <- data %>% filter(ticker == ticker)
+  
+  # Calcular retornos diários
+  daily_returns <- asset_data %>% 
+    select(ref.date, ret.closing.prices)
+  
+  # Criar gráficos com cor roxa
+  
+  # Preços
+  p_prices <- ggplot(asset_data, aes(x = ref.date, y = price.close)) +
+    geom_line(color = 'purple') +
+    labs(x = "", y = "Preço Fechamento", title = paste("Cotações Diárias de", ticker),
+         subtitle = paste("Período:", min(asset_data$ref.date), "a", max(asset_data$ref.date)),
+         caption = "Fonte: Yahoo Finance") +
+    theme_economist()
+  
+  # Retornos Diários
+  p_returns <- ggplot(daily_returns, aes(x = ref.date, y = ret.closing.prices)) +
+    geom_line(color = 'purple') +
+    labs(x = "", y = 'Retornos', title = paste("Retornos de", ticker),
+         subtitle = paste("Período:", min(daily_returns$ref.date), "a", max(daily_returns$ref.date)),
+         caption = "Fonte: Yahoo Finance") +
+    theme_economist()
+  
+  # Retornos Absolutos
+  p_volatility <- ggplot(daily_returns, aes(x = ref.date, y = abs(ret.closing.prices))) +
+    geom_line(color = 'purple') +
+    labs(x = "", y = 'Retornos Absolutos', title = paste("Retornos Absolutos de", ticker),
+         subtitle = paste("Período:", min(daily_returns$ref.date), "a", max(daily_returns$ref.date)),
+         caption = "Fonte: Yahoo Finance") +
+    theme_economist()
+  
+  # QQ Plot
+  p_qqplot <- ggplot(daily_returns, aes(sample = ret.closing.prices)) + 
+    stat_qq(color = 'purple') + 
+    stat_qq_line(color = 'purple') +
+    labs(x = "Teórico", y = 'Amostra', title = paste("QQ Plot de", ticker),
+         subtitle = paste("Período:", min(daily_returns$ref.date), "a", max(daily_returns$ref.date)),
+         caption = "Fonte: Yahoo Finance") +
+    theme_economist()
+  
+  # Histograma
+  p_histogram <- ggplot(daily_returns) +
+    geom_histogram(aes(x = ret.closing.prices, y = ..density..),
+                   color = "white", fill = 'purple', linetype = "solid", alpha = 0.8) +
+    geom_density(aes(x = ret.closing.prices, y = ..density..), color = 'purple') + 
+    labs(x = "", y = 'Densidade', title = paste("Histograma de", ticker),
+         subtitle = paste("Período:", min(daily_returns$ref.date), "a", max(daily_returns$ref.date)),
+         caption = "Fonte: Yahoo Finance") +
+    theme_economist()
+  
+  # Organizar gráficos em uma única visualização
+  plot_grid(p_prices, p_returns, p_volatility, p_qqplot, p_histogram, nrow = 3)
+}
+
+# Exemplo de chamada para gerar gráficos para o ticker específico
+print(make_plots(ibovespa_df, ticker_ibovespa))
+```
+* Caudas pesadas: Pelo histograma e QQplot, as caudas não são pesadas, indicando baixa ocorrência de retornos muito altos ou baixos.
+
+* Efeitos de alavancagem: Ele pode ser constatado verificando os gráficos de retorno x retorno absoluto (volatilidade)
+
+* Ausência de correlação linear: Séries financeiras não possuem correlação linear
+
+* Quadrados dos retornos são correlacionados: Podem ser verificados pelo gráfico de retornos absolutos
+
+## 1- b) Análise da FAC e FACP
+
+```{r FAC e FACP}
+
+ibovespa_df <- ibovespa_df %>%
+  filter(!is.na(ret.closing.prices))
+
+daily_returns <- ibovespa_df %>% 
+  select(ref.date,ret.closing.prices)
+
+date <- daily_returns %>%
+  select(ref.date) %>% 
+  rename(date = ref.date) %>% 
+  slice(-1)
+
+daily_returns <- daily_returns %>%
+  select(ret.closing.prices) %>% 
+  slice(-1)
+
+## declarando como série temporal através do comando as.ts
+daily_returns=as.ts(daily_returns)
+
+
+# Plotar a FAC e a FACP
+acf_plot <- acf(ts_returns, main = "Função de Autocorrelação (FAC)")
+pacf_plot <- pacf(ts_returns, main = "Função de Autocorrelação Parcial (FACP)")
+```
+
+
+## 1- c) Estimação do modelo e dos critérios de informação
+
+```{r estimacao do modelo e criterios de informacao}
+library(forecast)
+
+x = arima(daily_returns,order=c(0,0,1)) 
+
+# Critérios de Informação
+print(AIC(x))
+print(BIC(x))
+
+```
+
+Como o PAC cai drasticamente no primeiro Lag e a FACP ocila muito, podemos assumir (por enquanto) que o melhor modelo seria um MA(1)
+
+
+## 1- d) Estimação dos resíduos
+
+```{r residuos}
+
+# Diagnostico do modelo
+
+tsdiag(x)
+
+Box.test(x$residuals,lag=1) 
+Box.test(residuals(x),  type="Ljung")
+
+acf(residuals(x))
+pacf(residuals(x))
+
+# Resíduos
+plot.ts(x$residuals)
+
+```
+
+tsdiag(x):
+* Gráfico dos resíduos parece um ruído branco, sugerindo que **o modelo é adequado**
+* ACF dos resíduos é baixa, sugerindo que **o modelo é adequado**
+* Os valores de Ljung-Box são maiores que 0,05, sugerindo que **o modelo é adequado**
+
+Box-Pierce e Box-Ljung tests: 
+Ambos p-valores estão acima de 0,5, sugerindo que **o modelo é adequado**
+
+FAC e FACP:
+Ambas dentro do intervalo de confiança, sugerindo que **o modelo é adequado**
+
+## 2- Previsão
+
+```{r Previsao}
+print(forecast(x, h=5))
+plot(forecast(x, h=5))
+
+
+plot(daily_returns, col="pink")
+lines(fitted(x),col="purple")
+
+```
+
+
+## 3- Estimação do modelo ARMA ideial para SP500
+Para automatizar a escolha, usarei a função auto.arima, 
+
+```{r Estimacao ARMA SP500 config, message=FALSE, warning=FALSE}
+library(BatchGetSymbols)
+library(dplyr)
+library(forecast)
+
+# Baixar dados do SP500 usando a função correta
+sp500_data <- BatchGetSymbols::GetSP500Stocks()
+ticker = sp500_data$Tickers
+
+sp500_data <- BatchGetSymbols(tickers = ticker, freq.data = 'daily')
+
+```
+
+```{r Estimacao ARMA SP500 }
+# Passo 3: Extrair dados de fechamento e retornos
+sp500_data_df <- sp500_data$df.tickers
+
+# Passo 4: Estimar o modelo ARMA para cada ação
+results <- sp500_data_df %>%
+  group_by(ticker) %>%
+  do({
+    # Convertendo os retornos em série temporal
+    ts_data <- ts(.$ret.closing.prices, frequency = 252)
+    
+    # Ajustar modelo ARMA
+    model <- auto.arima(ts_data)  # Usa auto.arima para escolher o melhor modelo
+    model_order <- arimaorder(model)
+
+    # Fazer previsões para t+1
+    forecasted <- forecast(model, h = 1)  # Previsão para o próximo período
+    
+    # Adicionar previsões ao dataframe
+    data.frame(
+      ticker = unique(.$ticker),
+      forecast = forecasted$mean,
+      p = model_order[1],   # Parâmetro AR
+      d = model_order[2],   # Parâmetro I
+      q = model_order[3]   # Parâmetro MA
+    )
+  })
+
+# Exibir os resultados
+print(results)
+
+```
+
+```{r maior expctativa}
+best <- results %>% arrange(desc(forecast))
+head(best)
+
+```
+ 
+O maior retorno é da GNRC - Generac Holdings Inc
+
+
+## 4- Estratégia de Negociação Baseada em Previsões
+
+
+```{r Estrategi}
+library(dplyr)
+library(forecast)
+
+# Separar os dados
+cut_date <- Sys.Date() - days(30)
+train_data <- sp500_data_df %>% filter(ref.date < cut_date)
+test_data <- sp500_data_df %>% filter(ref.date >= cut_date)
+
+# Ajustar modelos ARIMA com dados de treinamento
+model_results <- train_data %>%
+  group_by(ticker) %>%
+  do({
+    ts_data <- ts(.$ret.closing.prices, frequency = 252)
+    model <- tryCatch({
+      auto.arima(ts_data)
+    }, error = function(e) {
+      NA
+    })
+    data.frame(ticker = unique(.$ticker), model = list(model))
+  })
+
+# Fazer previsões para os dados de teste
+forecast_results <- test_data %>%
+  group_by(ticker) %>%
+  do({
+    ticker_model <- model_results %>%
+      filter(ticker == unique(.$ticker)) %>%
+      pull(model) %>%
+      .[[1]]
+    
+    if (!is.na(ticker_model)) {
+      forecasted <- tryCatch({
+        forecast(ticker_model, h = 1)
+      }, error = function(e) {
+        NULL
+      })
+      
+      if (!is.null(forecasted)) {
+        data.frame(
+          ticker = unique(.$ticker),
+          forecast = forecasted$mean,
+          lo_95 = forecasted$lower[,2],
+          hi_95 = forecasted$upper[,2],
+          actual_return = .$ret.closing.prices[nrow(.)],
+          strategy = ifelse(forecasted$mean > 0, "Buy", "Sell")
+        )
+      } else {
+        data.frame(
+          ticker = unique(.$ticker),
+          forecast = NA,
+          lo_95 = NA,
+          hi_95 = NA,
+          actual_return = NA,
+          strategy = NA
+        )
+      }
+    } else {
+      data.frame(
+        ticker = unique(.$ticker),
+        forecast = NA,
+        lo_95 = NA,
+        hi_95 = NA,
+        actual_return = NA,
+        strategy = NA
+      )
+    }
+  })
+
+# Avaliar a estratégia
+strategy_performance <- forecast_results %>%
+  mutate(
+    profit = ifelse(strategy == "Buy", actual_return - forecast, forecast - actual_return)
+  ) %>%
+  summarise(
+    total_profit = sum(profit, na.rm = TRUE)
+  )
+
+# Exibir resultados
+print(forecast_results)
+print(strategy_performance)
+
+```
+
+```{r maior expctativa2}
+best2 <- forecast_results %>% arrange(desc(forecast_results))
+head(best2)
+
+```

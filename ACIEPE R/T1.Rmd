@@ -1,0 +1,196 @@
+---
+title: "T1"
+author: "Ana Ellen"
+date: "`r Sys.Date()`"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+#### Para este trabalho, usarei as ações da Petrobras (PETR4), do Vale (VALE3) da Embraer (EMBR3.SA) e da Ambev (ABEV3.SA).
+
+
+```{r config, message=FALSE, warning=FALSE}
+# Carregar pacotes necessários
+library(BatchGetSymbols)
+library(tidyverse)
+library(ggthemes)
+library(cowplot)
+
+# Limpar o ambiente
+rm(list = ls())
+
+# Definir tickers dos ativos - Petrobras, Vale, Embraer e Ambev
+tickers <- c('PETR4.SA', 'VALE3.SA','EMBR3.SA','ABEV3.SA')
+
+# Coletar dados históricos
+assets <- BatchGetSymbols(tickers,
+                          first.date = '2014-01-01',
+                          last.date = Sys.Date(),
+                          type.return = "log",
+                          freq.data = "daily")
+
+# Selecionar o dataframe de preços
+assets <- assets$df.tickers
+
+# Variáveis para análise
+variables <- c(
+  'price.open',               # Preço de Abertura
+  'price.high',               # Preço Máximo
+  'price.low',                # Preço Minimo
+  'price.close',              # Preço de Fechamento
+  'volume',                   # Volume de Negociação
+  'ret.closing.prices',       # Retorno Logaritmico Diário dos Preços de Fechamento
+  'ret.adjusted.prices'      # Retorno Logaritmico Diário dos Preços Ajustados
+)
+```
+
+## 1 - Fatos Estilizados
+
+```{r 1 - Fatos Estilizados}
+library(ggplot2)
+library(cowplot)
+library(zoo)
+library(dplyr)
+
+# Função para criar gráficos
+make_plots <- function(data, ticker) {
+  # Filtrar por ticker
+  asset_data <- data %>% filter(ticker == ticker)
+  
+  # Calcular retornos diários
+  daily_returns <- asset_data %>% 
+    select(ref.date, ret.closing.prices)
+  
+  # Criar gráficos com cor roxa
+  
+  # Preços
+  p_prices <- ggplot(asset_data, aes_string(x = 'ref.date', y = "price.close")) +
+    geom_line(color = 'purple') +
+    labs(x = "", y = "Preco Fechamento", title = paste("Cotacoes Diarias de", ticker),
+         subtitle = paste("Periodo:", min(asset_data$ref.date), "a", max(asset_data$ref.date)), 
+         caption = "Fonte: Yahoo Finance") +
+    theme_economist()
+  
+  # Retornos Diários
+  p_returns <- ggplot(daily_returns, aes(x = ref.date, y = ret.closing.prices)) +
+    geom_line(color = 'purple') +
+    labs(x = "", y = 'Retornos', title = paste("Retornos de", ticker),
+         subtitle = paste("Periodo:", min(asset_data$ref.date), "a", max(asset_data$ref.date)),
+         caption = "Fonte: Yahoo Finance") +
+    theme_economist()
+  
+  # Retornos Absolutos
+  p_volatility <- ggplot(daily_returns, aes(x = ref.date, y = abs(ret.closing.prices))) +
+    geom_line(color = 'purple') +
+    labs(x = "", y = 'Retornos Absolutos', title = paste("Retornos Absolutos de", ticker),
+         subtitle = paste("Periodo:", min(asset_data$ref.date), "a", max(asset_data$ref.date)),
+         caption = "Fonte: Yahoo Finance") +
+    theme_economist()
+  
+  # QQ Plot
+  p_qqplot <- ggplot(daily_returns, aes(sample = ret.closing.prices)) + 
+    stat_qq(color = 'purple') + 
+    stat_qq_line(color = 'purple') +
+    labs(x = "Teroico", y = 'Amostra', title = paste("QQ Plot de", ticker),
+         subtitle = paste("Periodo:", min(asset_data$ref.date), "a", max(asset_data$ref.date)),
+         caption = "Fonte: Yahoo Finance") +
+    theme_economist()
+  
+  # Histograma
+  p_histogram <- ggplot(daily_returns) +
+    geom_histogram(aes(x = ret.closing.prices, y = ..density..),
+                   color = "white", fill = 'purple', linetype = "solid", alpha = 0.8) +
+    geom_density(aes(x = ret.closing.prices, y = ..density..), color = 'purple') + 
+    labs(x = "", y = 'Densidade', title = paste("Histograma de", ticker),
+         subtitle = paste("Periodo:", min(asset_data$ref.date), "a", max(asset_data$ref.date)),
+         caption = "Fonte: Yahoo Finance") +
+    theme_economist()
+  
+  
+  # Organizar gráficos em uma única visualização
+  plot_grid(p_prices, p_returns, p_volatility, p_qqplot, p_histogram, nrow = 3)
+}
+
+# Exemplo de chamada para gerar gráficos para um ticker especifico
+# print(make_plots(assets, tickers[1]))
+
+
+```
+
+### 1 - Petrobrás
+```{r petrobras, fig.width=14, fig.height=8, message=FALSE, warning=FALSE}
+print(make_plots(assets, tickers[1]))
+```
+
+### 2 - Vale
+```{r vale, fig.width=14, fig.height=8, message=FALSE, warning=FALSE}
+print(make_plots(assets, tickers[2]))
+```
+
+
+### 3 - Embraer
+```{r embraer, fig.width=14, fig.height=8, message=FALSE, warning=FALSE}
+print(make_plots(assets, tickers[3]))
+```
+
+### 4 - Ambev
+
+```{r ambev, fig.width=14, fig.height=8, message=FALSE, warning=FALSE}
+print(make_plots(assets, tickers[4]))
+```
+
+### Fatos Estilizados:
+
+* Caudas pesadas: Pelo histograma e QQplot, as caudas são pesadas, indicando a ocorrência frequente de retornos muito altos ou baixos.
+
+* Efeitos de alavancagem: Ele pode ser constatado verificando os gráficos de retorno x retorno absoluto (volatilidade)
+
+* Ausência de correlação linear: Séries financeiras não possuem correlação linear
+
+* Quadrados dos retornos são correlacionados: Podem ser verificados pelo gráfico de retornos absolutos
+
+* Efeito de bad news: Comparando a volatilidade das 4 ações, pode-se verificar uma certo aumento/decerscimento relacionado entre elas
+
+## 2 Extra - Estatisticas Descritivas
+
+```{r 2 Extra - Estatisticas Descritivas, message=FALSE, warning=FALSE}
+if (!require(psych)) install.packages("psych")
+if (!require(moments)) install.packages("moments")
+
+# Carregar pacotes necessários para análise
+library(psych)
+library(moments)
+
+# Selecionar variáveis para análise
+dados_analise <- assets %>%
+  select(ticker, ref.date, all_of(variables)) %>%
+  pivot_longer(cols = -c(ticker, ref.date), names_to = "variavel", values_to = "valor")
+
+# Função para calcular estatisticas descritivas
+calcular_estatisticas <- function(dados) {
+  # Estatisticas descritivas básicas
+  estatisticas <- dados %>%
+    group_by(ticker, variavel) %>%
+    summarise(
+      media = mean(valor, na.rm = TRUE),
+      desvio_padrao = sd(valor, na.rm = TRUE),
+      variancia = var(valor, na.rm = TRUE),
+      curtose = kurtosis(valor, na.rm = TRUE),
+      assimetria = skewness(valor, na.rm = TRUE)
+    )
+  return(estatisticas)
+}
+
+# Calcular estatisticas para cada variável por ticker
+estatisticas_dados <- calcular_estatisticas(dados_analise)
+
+# Mostrar resultados
+print(estatisticas_dados)
+
+```

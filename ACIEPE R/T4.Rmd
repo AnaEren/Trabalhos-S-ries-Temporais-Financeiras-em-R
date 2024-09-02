@@ -1,0 +1,169 @@
+---
+title: "T4"
+author: "Ana Ellen"
+date: "2024-08-26"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Lista Modelos ARCH: Teórica e Prática
+
+## 1-
+
+Considere o modelo ARCH(1) dado por:
+
+$$ r_t = \delta + \epsilon_t $$
+$$ \epsilon_t = \sigma_t z_t, \quad z_t \sim N(0, 1) $$
+$$ \sigma_t^2 = \omega + \alpha \epsilon_{t-1}^2 $$
+
+onde \(\omega > 0\) e \(\alpha \geq 0\). Seja o conjunto de informação \(I_{t-1} = \{r_1, r_2, \ldots, r_{t-1}\}\).
+
+
+
+#### **(a)** Explique em palavras por que os parâmetros \(\omega\) e \(\alpha\) são restritos a serem positivo e não negativo, respectivamente.
+
+- \(\omega\): A variância precisa sempre assumir um valor positivo por ser uma medida de dispersão, e como \(\omega\) atua como o valor mínimo que a variância pode assumir pela equação, este deve ser positivo.
+
+- \(\alpha\): Como \(\alpha\) é a variável que acompanha os erros quadrados, se esta for negativa, existe chance da volatilidade se tornar negativa, o que não seria possível; já se \(\alpha\) for 0, o valor da variânncia seria o valor mínimo, \(\omega\). 
+Também porque, se \(\alpha\) fosse negativo, grandes choque do passado diminuiriam muito a variância futura, o que não consiste como comportamento dos mercados financeiros.
+
+
+#### **(b)** Explique em palavras como o modelo acima permite clusters de volatilidade, que é um fato empírico estilizado de séries financeiras.
+
+- Como a variância condicional depende dos choques passados, se um grande choque ocorre em um certo período, ele aumenta a variância condicional do próximo, o que pode acabar levando a outro grande choque. Logo, os períodos de alta volatilidade tendem a ficar mais agrupados, permitindo clusters de volatilidade.
+
+
+#### **(c)** Cite dois fatos estilizados de séries temporais financeiras que não são capturados pelo modelo acima.
+
+- Efeito de alavancagem (bad news) 
+
+- Caudas pesadas se a distribuição for Normal (captura se for t Student)
+
+
+#### **(d)** Explique em palavras a diferença entre variância condicional e incondicional.
+
+Enquanto a **condicional** é a variância prevista para um dado período, considerando informações já disponíveis, a **incondicional** é a variância média ao longo de todo o período e não muda ao longo do tempo.
+
+## 2-
+
+Descreva como as FAC e FACP são utilizadas no contexto de modelos da família ARCH. Em quais etapas do ajuste do modelo elas são úteis?
+
+* *Utilidade:* Para checar a heterocedasticidade condicional - FAC e FACP são aplicadas nos resíduos ao quadrado da equação da média ou na série de retornos ao quadrado - são usadas para checar a heterocedasticidade condicional.
+
+* *Etapas:* São usadas antes do ajuste do modelo, para identificar a ordem e para fazer o diagno´stico do modelo.
+
+
+## 3-
+
+Ajuste os modelos da família ARCH vistos em aula, considerando a ordem (1,1) com as distribuições normal e t-Student para as seguintes séries, iniciando em 2019:
+
+```{r Modelo ARCH}
+library(rugarch)
+library(quantmod)
+
+getSymbols("PETR4.SA", from="2019-01-01", to=Sys.Date())
+getSymbols("^BVSP", from="2019-01-01", to=Sys.Date())
+
+ret_petrobras <- dailyReturn(Cl(PETR4.SA), type = 'log')
+ret_ibovespa <- dailyReturn(Cl(BVSP), type = 'log')
+
+# Especificar o modelo ARCH(1) com distribuição normal
+spec_norm <- ugarchspec(variance.model = list(model = "sGARCH", garchOrder = c(1,1)),
+                        mean.model = list(armaOrder = c(0,0)),
+                        distribution.model = "norm")
+
+# Especificar o modelo ARCH(1) com distribuição t-Student
+spec_t <- ugarchspec(variance.model = list(model = "sGARCH", garchOrder = c(1,1)),
+                     mean.model = list(armaOrder = c(0,0)),
+                     distribution.model = "std")
+
+```
+
+### **(a)** Log-retornos diários das ações da PETROBRAS
+
+```{r Petrobras}
+
+# Ajustar o modelo para Petrobras
+fit_petro_norm <- ugarchfit(spec = spec_norm, data = ret_petrobras)
+# Ajustar o modelo para Petrobras
+fit_petro_t <- ugarchfit(spec = spec_t, data = ret_petrobras)
+
+fit_petro_norm
+fit_petro_t
+```
+
+### **(b)** Log-retornos diários do IBOVESPA
+
+```{r Ibovespa}
+
+# Ajustar o modelo para Ibovespa
+fit_ibov_norm <- ugarchfit(spec = spec_norm, data = ret_ibovespa)
+# Ajustar o modelo para Ibovespa
+fit_ibov_t <- ugarchfit(spec = spec_t, data = ret_ibovespa)
+
+fit_ibov_norm
+fit_ibov_t
+```
+
+## 4-
+
+Para os modelos ajustados acima, calcule os coeficientes de persistência e half-life e interprete os resultados.
+
+```{r CoefPetro}
+# Calcular coeficiente de persistência e half-life para Petrobras
+alpha_petro <- coef(fit_petro_norm)["alpha1"]
+beta_petro <- coef(fit_petro_norm)["beta1"]
+persistencia_petro <- alpha_petro + beta_petro
+half_life_petro <- log(0.5) / log(persistencia_petro)
+
+# Exibir resultados para Petrobras
+persistencia_petro
+half_life_petro
+
+
+# Calcular coeficiente de persistência e half-life para Petrobras
+alpha_petro <- coef(fit_petro_t)["alpha1"]
+beta_petro <- coef(fit_petro_t)["beta1"]
+persistencia_petro <- alpha_petro + beta_petro
+half_life_petro <- log(0.5) / log(persistencia_petro)
+
+# Exibir resultados para Petrobras
+persistencia_petro
+half_life_petro
+```
+
+### Petrobras:
+
+Normal | A persistência da volatilidade é alta (0,93), e o choque leva cerca de 9,57 períodos para se dissipar pela metade.
+
+t Student |  A persistência é ligeiramente maior (0,96), com um half-life mais longo, de 16,03 períodos, indicando choques mais duradouros.
+
+```{r CoefIbov}
+# Calcular coeficiente de persistência e half-life para Ibovespa
+alpha_ibov <- coef(fit_ibov_norm)["alpha1"]
+beta_ibov <- coef(fit_ibov_norm)["beta1"]
+persistencia_ibov <- alpha_ibov + beta_ibov
+half_life_ibov <- log(0.5) / log(persistencia_ibov)
+
+# Exibir resultados para Ibovespa
+persistencia_ibov
+half_life_ibov
+
+# Calcular coeficiente de persistência e half-life para Ibovespa
+alpha_ibov <- coef(fit_ibov_t)["alpha1"]
+beta_ibov <- coef(fit_ibov_t)["beta1"]
+persistencia_ibov <- alpha_ibov + beta_ibov
+half_life_ibov <- log(0.5) / log(persistencia_ibov)
+
+# Exibir resultados para Ibovespa
+persistencia_ibov
+half_life_ibov
+```
+### Ibovespa:
+
+Normal | A volatilidade é muito persistente (0,98), com um half-life de 29,32 períodos, sugerindo que os choques levam bastante tempo para se dissipar.
+
+t Student | A persistência é quase igual (0,97), com um half-life um pouco menor (27,20 períodos), mas ainda indica uma longa duração dos choques.
